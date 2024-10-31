@@ -1,122 +1,95 @@
-#include <SPI.h>
-#include <LoRa.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
+#include <SPI.h>
+#include <LoRa.h>
 
-// LoRa configuration
+// WiFi
+const char *ssid = "dipo"; // Enter your Wi-Fi name
+const char *password = "divo1234";  // Enter Wi-Fi password
+
+// MQTT Broker
+const char *mqtt_broker = "broker.emqx.io";
+const char *topic = "lora/data/out";
+const char *mqtt_username = "emqx";
+const char *mqtt_password = "public";
+const int mqtt_port = 1883;
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+// LoRa
 #define ss 5
 #define rst 14
 #define dio0 2
 
 int counter = 0;
 
-// WiFi and MQTT configuration
-const char* ssid = "122";
-const char* password = "123456788";
-const char* mqtt_server = "mqtt-dashboard.com";
-
-WiFiClient espClient;
-PubSubClient client(espClient);
-unsigned long lastMsg = 0;
-#define MSG_BUFFER_SIZE	(50)
-char msg[MSG_BUFFER_SIZE];
-int value = 0;
-
-// Function to connect to WiFi
-void setup_wifi() {
-  delay(10);
-  Serial.println();
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
-
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
-
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
-}
-
-// MQTT callback function
-void callback(char* topic, byte* payload, unsigned int length) {
-  Serial.print("Message arrived [");
-  Serial.print(topic);
-  Serial.print("] ");
-  for (int i = 0; i < length; i++) {
-    Serial.print((char)payload[i]);
-  }
-  Serial.println();
-}
-
-// Function to reconnect to MQTT
-void reconnect() {
-  while (!client.connected()) {
-    Serial.print("Attempting MQTT connection...");
-    String clientId = "cobamqtt";
-    clientId += String(random(0xffff), HEX);
-    if (client.connect(clientId.c_str())) {
-      Serial.println("connected");
-      client.publish("/esp32/topicdipo/out", "hello world");
-      client.subscribe("/esp32/topicdipo/in");
-    } else {
-      Serial.print("failed, rc=");
-      Serial.print(client.state());
-      Serial.println(" try again in 5 seconds");
-      delay(5000);
-    }
-  }
-}
-
-// Setup function for LoRa and MQTT
 void setup() {
-  // Initialize Serial Monitor
-  Serial.begin(115200);
-  
-  // Setup WiFi and MQTT
-  setup_wifi();
-  client.setServer(mqtt_server, 1883);
-  client.setCallback(callback);
+    // Initialize Serial Monitor
+    Serial.begin(115200);
+    
+    // Initialize WiFi
+    WiFi.begin(ssid, password);
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.println("Connecting to WiFi..");
+    }
+    Serial.println("Connected to the Wi-Fi network");
 
-  // Setup LoRa transceiver
-  LoRa.setPins(ss, rst, dio0);
-  while (!LoRa.begin(920E6)) {
-    Serial.println(".");
-    delay(500);
-  }
-  LoRa.setSyncWord(0xF3);
-  Serial.println("LoRa Initializing OK!");
+    // Initialize MQTT
+    client.setServer(mqtt_broker, mqtt_port);
+    client.setCallback(callback);
+    while (!client.connected()) {
+        String client_id = "client-esp32-mqtt-";
+        client_id += String(WiFi.macAddress());
+        Serial.printf("The client %s connects to the public MQTT broker\n", client_id.c_str());
+        if (client.connect(client_id.c_str(), mqtt_username, mqtt_password)) {
+            Serial.println("Public EMQX MQTT broker connected");
+        } else {
+            Serial.print("failed with state ");
+            Serial.print(client.state());
+            delay(2000);
+        }
+    }
+    client.subscribe(topic);
+
+    // Setup LoRa transceiver module
+    LoRa.setPins(ss, rst, dio0);
+    while (!LoRa.begin(920E6)) {  // Adjust frequency for your region
+        Serial.println(".");
+        delay(500);
+    }
+    LoRa.setSyncWord(0xF3);
+    Serial.println("LoRa Initializing OK!");
 }
 
-// Loop function to send LoRa packets and MQTT messages
+void callback(char *topic, byte *payload, unsigned int length) {
+    Serial.print("Message arrived in topic: ");
+    Serial.println(topic);
+    Serial.print("Message: ");
+    for (int i = 0; i < length; i++) {
+        Serial.print((char) payload[i]);
+    }
+    Serial.println();
+    Serial.println("-----------------------");
+}
+
 void loop() {
-  if (!client.connected()) {
-    reconnect();
-  }
-  client.loop();
+    client.loop(); // Handle MQTT tasks
+    
+    // LoRa transmission
+    Serial.print("Sending LoRa packet: ");
+    Serial.println(counter);
 
-  // Send a LoRa packet every 10 seconds
-  Serial.print("Sending LoRa packet: ");
-  Serial.println(counter);
-  
-  LoRa.beginPacket();
-  LoRa.print("hello ");
-  LoRa.print(counter);
-  LoRa.endPacket();
-  
-  // Publish the LoRa packet data to MQTT
-  snprintf(msg, MSG_BUFFER_SIZE, "LoRa message #%d", counter);
-  Serial.print("Publishing MQTT message: ");
-  Serial.println(msg);
-  client.publish("/esp32/topicdipo/out", msg);
+    LoRa.beginPacket();
+    LoRa.print("LoRa message ");
+    LoRa.print(counter);
+    LoRa.endPacket();
 
-  counter++;
-  
-  // Delay to control the packet sending rate
-  delay(10000);
+    // Publish the same message via MQTT
+    String msg = "LoRa message " + String(counter);
+    client.publish(topic, msg.c_str());
+
+    counter++;
+    delay(5000); // Send every 10 seconds
 }

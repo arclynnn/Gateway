@@ -1,50 +1,106 @@
 #include <SPI.h>
 #include <LoRa.h>
+#include <WiFi.h>
+#include <PubSubClient.h>
 
-//define the pins used by the transceiver module
 #define ss 5
 #define rst 14
 #define dio0 2
 
-void setup() {
-  //initialize Serial Monitor
-  Serial.begin(115200);
-  while (!Serial);
-  Serial.println("LoRa Receiver");
+const char *ssid = "dipo"; // Wi-Fi name
+const char *password = "divo1234";  // Wi-Fi password
 
-  //setup LoRa transceiver module
-  LoRa.setPins(ss, rst, dio0);
-  
-  //replace the LoRa.begin(---E-) argument with your location's frequency 
-  //433E6 for Asia
-  //868E6 for Europe
-  //915E6 for North America
-  while (!LoRa.begin(920E6)) {
-    Serial.println(".");
+const char *mqtt_server = "broker.emqx.io";
+const char *mqtt_username = "emqx";
+const char *mqtt_password = "public";
+const int mqtt_port = 1883;
+const char *topic = "lora/data/out";  // Changed to match sender's topic
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+void connectWiFi() {
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
     delay(500);
+    Serial.print(".");
   }
-   // Change sync word (0xF3) to match the receiver
-  // The sync word assures you don't get LoRa messages from other LoRa transceivers
-  // ranges from 0-0xFF
+  Serial.println("\nConnected to WiFi");
+}
+
+void reconnectMQTT() {
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    String client_id = "client-esp32-mqtt-";
+    client_id += String(WiFi.macAddress());
+    if (client.connect(client_id.c_str(), mqtt_username, mqtt_password)) {
+      Serial.println("connected to MQTT broker.");
+      client.subscribe(topic);
+    } else {
+      Serial.print("failed with state ");
+      Serial.print(client.state());
+      delay(2000);
+    }
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  connectWiFi();
+  client.setServer(mqtt_server, mqtt_port);
+  client.setCallback(callback);
+  
+  LoRa.setPins(ss, rst, dio0);
+  if (!LoRa.begin(920E6)) {
+    Serial.println("Starting LoRa failed!");
+    while (1);
+  }
   LoRa.setSyncWord(0xF3);
-  Serial.println("LoRa Initializing OK!");
+  Serial.println("LoRa initialized.");
+}
+
+void callback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Message received on topic: ");
+  Serial.println(topic);
+  Serial.print("Message: ");
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)payload[i]);
+  }
+  Serial.println();
 }
 
 void loop() {
-  // try to parse packet
-  int packetSize = LoRa.parsePacket();
-  if (packetSize) {
-    // received a packet
-    Serial.print("Received packet '");
+  if (WiFi.status() != WL_CONNECTED) {
+    connectWiFi();
+  }
+  
+  if (!client.connected()) {
+    reconnectMQTT();
+  }
+  client.loop();
 
-    // read packet
+  int packetSize = LoRa.parsePacket();
+  Serial.print("Packet Size: ");
+  Serial.println(packetSize); // Debugging line
+
+  if (packetSize) {
+    String LoRaData = "";
     while (LoRa.available()) {
-      String LoRaData = LoRa.readString();
-      Serial.print(LoRaData); 
+      LoRaData += (char)LoRa.read();
     }
 
-    // print RSSI of packet
-    Serial.print("' with RSSI ");
-    Serial.println(LoRa.packetRssi());
+    if (LoRaData.length() > 0) {
+      Serial.println("Received LoRa Data: " + LoRaData);
+      Serial.print("RSSI: ");
+      Serial.println(LoRa.packetRssi());
+      client.publish(topic, LoRaData.c_str());
+      Serial.println("Data published to MQTT broker");
+    } else {
+      Serial.println("Empty LoRa packet received");
+    }
+  } else {
+    Serial.println("No LoRa packet detected");
   }
+
+  delay(5000);
 }
