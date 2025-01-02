@@ -1,0 +1,6 @@
+projectKey=gateway
+serverUrl=http://localhost:9000
+serverVersion=10.7.0.96327
+dashboardUrl=http://localhost:9000/dashboard?id=gateway
+ceTaskId=b90e02e9-4da1-40ef-8d64-19458320c6eb
+ceTaskUrl=http://localhost:9000/api/ce/task?id=b90e02e9-4da1-40ef-8d64-19458320c6eb
