@@ -8,10 +8,10 @@ const char *ssid = "dipo"; // Nama WiFi
 const char *password = "divo1234";  // Password WiFi
 
 // MQTT Broker
-const char *mqtt_broker = "broker.emqx.io";
-const char *topic = "lora/data/in"; // Topik untuk data masuk
-const char *mqtt_username = "emqx";
-const char *mqtt_password = "public";
+const char *mqtt_broker = "192.168.130.32";
+const char *topic = "lora/data1"; // Topik untuk data masuk
+const char *mqtt_username = "AdminMQTT";
+const char *mqtt_password = "pwd123";
 const int mqtt_port = 1883;
 
 WiFiClient espClient;
